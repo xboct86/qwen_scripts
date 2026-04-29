@@ -152,15 +152,11 @@ process_file() {
         # Массив имен файлов для копирования
         local files_to_copy=()
         
-        # Ищем файлы вида D.bmp или DD.bmp (одна или две цифры)
+        # Ищем все файлы *.bmp
         shopt -s nullglob
         for bmp_file in "$parent_dir"/*.bmp; do
             if [ -f "$bmp_file" ]; then
-                local bmp_name=$(basename "$bmp_file")
-                # Проверяем, что имя состоит из 1 или 2 цифр и .bmp
-                if [[ "$bmp_name" =~ ^[0-9]{1,2}\.bmp$ ]]; then
-                    files_to_copy+=("$bmp_file")
-                fi
+                files_to_copy+=("$bmp_file")
             fi
         done
         
