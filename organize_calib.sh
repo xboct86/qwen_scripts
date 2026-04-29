@@ -181,11 +181,11 @@ fi
 
 echo ""
 
-# Находим все файлы рекурсивно (исключая файлы > 1 КБ) и обрабатываем их
+# Находим все файлы рекурсивно (исключая файлы > 5 КБ) и обрабатываем их
 while IFS= read -r -d '' file; do
     echo "Проверка файла: $file"
     process_file "$file"
-done < <(find "$SOURCE_DIR" -type f -size -1k -print0)
+done < <(find "$SOURCE_DIR" -type f -size -5k -print0)
 
 echo ""
 echo "Обработка завершена!"
