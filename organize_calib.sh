@@ -129,50 +129,51 @@ process_file() {
             echo "  [DRY-RUN] cp $file $target_calib"
         fi
         
-        # Находим все остальные файлы в той же папке (кроме файлов калибровки)
-        # и копируем их в SRC
+        # Находим только определенные файлы в той же папке и копируем их в SRC
         local parent_dir=$(dirname "$file")
         
-        # Используем nullglob, чтобы цикл не выполнялся, если файлов нет
+        # Массив имен файлов для копирования
+        local files_to_copy=()
+        
+        # Ищем файлы вида D.bmp или DD.bmp (одна или две цифры)
         shopt -s nullglob
-        for other_file in "$parent_dir"/*; do
-            if [ -f "$other_file" ]; then
-                local other_filename=$(basename "$other_file")
-                
-                # Пропускаем скрытые файлы
-                if [[ "$other_filename" == .* ]]; then
-                    continue
-                fi
-                
-                # Пропускаем сам файл калибровки (если он уже обработан)
-                if [ "$other_file" == "$file" ]; then
-                    continue
-                fi
-                
-                # Проверяем, не является ли другой файл тоже файлом калибровки
-                local other_is_calib=false
-                while IFS= read -r other_line || [ -n "$other_line" ]; do
-                    other_line=$(echo "$other_line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                    if [ -n "$other_line" ] && is_calibration_line "$other_line"; then
-                        other_is_calib=true
-                        break
-                    fi
-                done < "$other_file"
-                
-                if [ "$other_is_calib" = false ]; then
-                    # Это не файл калибровки, копируем в SRC
-                    if [ "$DRY_RUN" = false ]; then
-                        cp "$other_file" "$src_dir/"
-                        echo "  Скопирован файл в SRC: $other_filename"
-                    else
-                        echo "  [DRY-RUN] cp $other_file $src_dir/"
-                    fi
-                else
-                    echo "  Пропущен файл (другая калибровка): $other_filename"
+        for bmp_file in "$parent_dir"/*.bmp; do
+            if [ -f "$bmp_file" ]; then
+                local bmp_name=$(basename "$bmp_file")
+                # Проверяем, что имя состоит из 1 или 2 цифр и .bmp
+                if [[ "$bmp_name" =~ ^[0-9]{1,2}\.bmp$ ]]; then
+                    files_to_copy+=("$bmp_file")
                 fi
             fi
         done
+        
+        # Ищем project.txt
+        if [ -f "$parent_dir/project.txt" ]; then
+            files_to_copy+=("$parent_dir/project.txt")
+        fi
+        
+        # Ищем project.bin
+        if [ -f "$parent_dir/project.bin" ]; then
+            files_to_copy+=("$parent_dir/project.bin")
+        fi
         shopt -u nullglob
+        
+        # Копируем найденные файлы в SRC
+        for other_file in "${files_to_copy[@]}"; do
+            local other_filename=$(basename "$other_file")
+            
+            # Пропускаем сам файл калибровки
+            if [ "$other_file" == "$file" ]; then
+                continue
+            fi
+            
+            if [ "$DRY_RUN" = false ]; then
+                cp "$other_file" "$src_dir/"
+                echo "  Скопирован файл в SRC: $other_filename"
+            else
+                echo "  [DRY-RUN] cp $other_file $src_dir/"
+            fi
+        done
         
     fi
 }
@@ -191,12 +192,11 @@ fi
 
 echo ""
 
-# Находим все файлы рекурсивно (исключая файлы >= 5 КБ) и обрабатываем их
-# -size -5k означает строго меньше 5 килобайт
+# Находим все файлы рекурсивно и обрабатываем их
 while IFS= read -r -d '' file; do
     echo "Проверка файла: $file"
     process_file "$file"
-done < <(find "$SOURCE_DIR" -type f -size -5k -print0)
+done < <(find "$SOURCE_DIR" -type f -print0)
 
 echo ""
 echo "Обработка завершена!"
