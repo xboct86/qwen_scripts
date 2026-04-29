@@ -58,8 +58,16 @@ if [ ! -d "$SOURCE_DIR" ]; then
     exit 1
 fi
 
-# Получение текущей даты в формате YYYYMMDD
+# Получение текущей даты в формате YYYYMMDD (по умолчанию)
 CURRENT_DATE=$(date +%Y%m%d)
+
+# Функция для получения даты последнего изменения файла в формате YYYYMMDD
+get_file_mod_date() {
+    local file="$1"
+    # Получаем дату изменения в формате YYYY-MM-DD HH:MM:SS и извлекаем только дату
+    local mod_date=$(stat -c %y "$file" 2>/dev/null | cut -d' ' -f1 | tr -d '-')
+    echo "$mod_date"
+}
 
 # Функция для проверки, является ли строка строкой калибровки
 # Строка калибровки должна заканчиваться серийным номером (набор букв и цифр)
@@ -130,8 +138,11 @@ process_file() {
             fi
         fi
         
-        # Имя файла калибровки
-        local calib_filename="calib_${camera_sn}_${CURRENT_DATE}.txt"
+        # Получаем дату последнего изменения файла калибровки
+        local file_mod_date=$(get_file_mod_date "$file")
+        
+        # Имя файла калибровки с датой изменения файла
+        local calib_filename="calib_${camera_sn}_${file_mod_date}.txt"
         local target_calib="$target_dir/$calib_filename"
         
         # Копируем файл калибровки в целевую папку
