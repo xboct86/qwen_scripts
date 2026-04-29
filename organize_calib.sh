@@ -118,7 +118,7 @@ process_file() {
         local src_dir="$target_dir/SRC"
         
         if [ "$DRY_RUN" = false ]; then
-            mkdir -p "$target_dir"
+            mkdir -p "$src_dir"
             if [ "$DEBUG" = true ]; then
                 echo "  Создана папка камеры: $target_dir"
                 echo "  Создана папка SRC: $src_dir"
