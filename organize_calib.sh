@@ -84,6 +84,13 @@ process_file() {
         return
     fi
     
+    # Быстрая проверка размера: если файл >= 5 КБ, это точно не текстовый файл калибровки
+    # Избегаем чтения больших файлов (например, BMP по 5 МБ)
+    local file_size=$(stat -c%s "$file" 2>/dev/null || echo "0")
+    if [ "$file_size" -ge 5120 ]; then
+        return
+    fi
+    
     # Пытаемся найти строку калибровки в файле
     local camera_sn=""
     local is_calib_file=false
