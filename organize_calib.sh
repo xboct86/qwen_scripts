@@ -8,17 +8,37 @@ set -e
 
 # Проверка аргументов
 if [ $# -lt 1 ]; then
-    echo "Использование: $0 <путь_к_родительской_папке> [--dry-run]"
+    echo "Использование: $0 <путь_к_родительской_папке> [путь_к_выходной_папке] [--dry-run]"
+    echo "  путь_к_выходной_папке - опционально, куда складывать результаты (по умолчанию: <входная_папка>/CAMS_CALIB)"
     echo "  --dry-run - показать, что будет сделано, без реальных изменений"
     exit 1
 fi
 
 SOURCE_DIR="$1"
+OUTPUT_DIR=""
 DRY_RUN=false
 
-if [ "$2" == "--dry-run" ]; then
-    DRY_RUN=true
-    echo "Режим сухого запуска (без реальных изменений)"
+# Обработка аргументов
+shift
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=true
+            echo "Режим сухого запуска (без реальных изменений)"
+            shift
+            ;;
+        *)
+            if [ -z "$OUTPUT_DIR" ]; then
+                OUTPUT_DIR="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Если выходная папка не указана, используем подпапку CAMS_CALIB в исходной
+if [ -z "$OUTPUT_DIR" ]; then
+    OUTPUT_DIR="$SOURCE_DIR/CAMS_CALIB"
 fi
 
 # Проверка существования исходной директории
@@ -82,8 +102,8 @@ process_file() {
         # Это файл калибровки
         echo "Найден файл калибровки: $file (Камера: $camera_sn)"
         
-        # Создаем целевую папку для камеры
-        local target_dir="$SOURCE_DIR/$camera_sn"
+        # Создаем целевую папку для камеры в OUTPUT_DIR
+        local target_dir="$OUTPUT_DIR/$camera_sn"
         local src_dir="$target_dir/SRC"
         
         if [ "$DRY_RUN" = false ]; then
@@ -149,7 +169,16 @@ process_file() {
 }
 
 echo "Начинаю сканирование директории: $SOURCE_DIR"
+echo "Выходная директория: $OUTPUT_DIR"
 echo "Текущая дата: $CURRENT_DATE"
+
+# Создаем выходную директорию если не dry-run
+if [ "$DRY_RUN" = false ]; then
+    mkdir -p "$OUTPUT_DIR"
+else
+    echo "[DRY-RUN] mkdir -p $OUTPUT_DIR"
+fi
+
 echo ""
 
 # Находим все файлы рекурсивно (исключая файлы > 1 КБ) и обрабатываем их
