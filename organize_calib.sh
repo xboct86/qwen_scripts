@@ -8,16 +8,18 @@ set -e
 
 # Проверка аргументов
 if [ $# -lt 1 ]; then
-    echo "Использование: $0 <путь_к_родительской_папке> [путь_к_выходной_папке] [--dry-run]"
+    echo "Использование: $0 <путь_к_родительской_папке> [путь_к_выходной_папке] [--dry-run] [--debug]"
     echo "  путь_к_выходной_папке - опционально, куда складывать результаты."
     echo "                        Если не указано, создается папка CAMS_CALIB рядом с исходной."
     echo "  --dry-run           - показать, что будет сделано, без реальных изменений"
+    echo "  --debug             - включить подробный вывод отладочной информации"
     exit 1
 fi
 
 SOURCE_DIR="$1"
 OUTPUT_DIR=""
 DRY_RUN=false
+DEBUG=false
 
 # Нормализация пути (убираем конечный слэш, если есть, для корректной работы dirname)
 SOURCE_DIR="${SOURCE_DIR%/}"
@@ -29,6 +31,10 @@ while [ $# -gt 0 ]; do
         --dry-run)
             DRY_RUN=true
             echo "Режим сухого запуска (без реальных изменений)"
+            shift
+            ;;
+        --debug)
+            DEBUG=true
             shift
             ;;
         *)
@@ -101,7 +107,11 @@ process_file() {
     
     if [ "$is_calib_file" = true ] && [ -n "$camera_sn" ]; then
         # Это файл калибровки
-        echo "Найден файл калибровки: $file (Камера: $camera_sn)"
+        if [ "$DEBUG" = true ]; then
+            echo "Найден файл калибровки: $file (Камера: $camera_sn)"
+        else
+            echo "Найден файл калибровки: $file (Камера: $camera_sn)"
+        fi
         
         # Создаем целевую папку для камеры в OUTPUT_DIR
         local target_dir="$OUTPUT_DIR/$camera_sn"
@@ -109,12 +119,15 @@ process_file() {
         
         if [ "$DRY_RUN" = false ]; then
             mkdir -p "$target_dir"
-            echo "  Создана папка камеры: $target_dir"
-            mkdir -p "$src_dir"
-            echo "  Создана папка SRC: $src_dir"
+            if [ "$DEBUG" = true ]; then
+                echo "  Создана папка камеры: $target_dir"
+                echo "  Создана папка SRC: $src_dir"
+            fi
         else
-            echo "  [DRY-RUN] mkdir -p $target_dir"
-            echo "  [DRY-RUN] mkdir -p $src_dir"
+            if [ "$DEBUG" = true ]; then
+                echo "  [DRY-RUN] mkdir -p $target_dir"
+                echo "  [DRY-RUN] mkdir -p $src_dir"
+            fi
         fi
         
         # Имя файла калибровки
@@ -124,9 +137,13 @@ process_file() {
         # Копируем файл калибровки в целевую папку
         if [ "$DRY_RUN" = false ]; then
             cp "$file" "$target_calib"
-            echo "  Скопирован файл калибровки: $calib_filename"
+            if [ "$DEBUG" = true ]; then
+                echo "  Скопирован файл калибровки: $calib_filename"
+            fi
         else
-            echo "  [DRY-RUN] cp $file $target_calib"
+            if [ "$DEBUG" = true ]; then
+                echo "  [DRY-RUN] cp $file $target_calib"
+            fi
         fi
         
         # Находим только определенные файлы в той же папке и копируем их в SRC
@@ -169,9 +186,13 @@ process_file() {
             
             if [ "$DRY_RUN" = false ]; then
                 cp "$other_file" "$src_dir/"
-                echo "  Скопирован файл в SRC: $other_filename"
+                if [ "$DEBUG" = true ]; then
+                    echo "  Скопирован файл в SRC: $other_filename"
+                fi
             else
-                echo "  [DRY-RUN] cp $other_file $src_dir/"
+                if [ "$DEBUG" = true ]; then
+                    echo "  [DRY-RUN] cp $other_file $src_dir/"
+                fi
             fi
         done
         
@@ -193,10 +214,16 @@ fi
 echo ""
 
 # Находим все файлы рекурсивно и обрабатываем их
-while IFS= read -r -d '' file; do
-    echo "Проверка файла: $file"
-    process_file "$file"
-done < <(find "$SOURCE_DIR" -type f -size -5k -print0)
+if [ "$DEBUG" = true ]; then
+    while IFS= read -r -d '' file; do
+        echo "Проверка файла: $file"
+        process_file "$file"
+    done < <(find "$SOURCE_DIR" -type f -size -5k -print0)
+else
+    while IFS= read -r -d '' file; do
+        process_file "$file"
+    done < <(find "$SOURCE_DIR" -type f -size -5k -print0)
+fi
 
 echo ""
 echo "Обработка завершена!"
