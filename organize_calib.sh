@@ -108,7 +108,9 @@ process_file() {
         
         if [ "$DRY_RUN" = false ]; then
             mkdir -p "$target_dir"
+            echo "  Создана папка камеры: $target_dir"
             mkdir -p "$src_dir"
+            echo "  Создана папка SRC: $src_dir"
         else
             echo "  [DRY-RUN] mkdir -p $target_dir"
             echo "  [DRY-RUN] mkdir -p $src_dir"
@@ -121,6 +123,7 @@ process_file() {
         # Копируем файл калибровки в целевую папку
         if [ "$DRY_RUN" = false ]; then
             cp "$file" "$target_calib"
+            echo "  Скопирован файл калибровки: $calib_filename"
         else
             echo "  [DRY-RUN] cp $file $target_calib"
         fi
@@ -156,6 +159,7 @@ process_file() {
                     # Это не файл калибровки, копируем в SRC
                     if [ "$DRY_RUN" = false ]; then
                         cp "$other_file" "$src_dir/"
+                        echo "  Скопирован файл в SRC: $other_filename"
                     else
                         echo "  [DRY-RUN] cp $other_file $src_dir/"
                     fi
@@ -175,6 +179,7 @@ echo "Текущая дата: $CURRENT_DATE"
 # Создаем выходную директорию если не dry-run
 if [ "$DRY_RUN" = false ]; then
     mkdir -p "$OUTPUT_DIR"
+    echo "Создана выходная директория: $OUTPUT_DIR"
 else
     echo "[DRY-RUN] mkdir -p $OUTPUT_DIR"
 fi
