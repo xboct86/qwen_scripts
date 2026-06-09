@@ -9,12 +9,15 @@ set -e
 SOURCE_DIR=""
 OUTPUT_DIR=""
 ARCHIVE_DIR=""
+FILE_ACTION=""
 DRY_RUN=false
 DEBUG=false
 
 usage() {
-    echo "Использование: $0 --in <путь> [--out <путь>] [--arc <путь>] [--dry-run] [--debug]"
+    echo "Использование: $0 --in <путь> (--copy|--move) [--out <путь>] [--arc <путь>] [--dry-run] [--debug]"
     echo "  --in <путь>   - обязательно, исходная папка для сканирования"
+    echo "  --copy        - обязательно (одно из двух), копировать найденные файлы в выходную папку"
+    echo "  --move        - обязательно (одно из двух), перемещать найденные файлы в выходную папку"
     echo "  --out <путь>  - опционально, куда складывать результаты."
     echo "                  Если не указано, создается папка CAMS_CALIB рядом с исходной."
     echo "  --arc <путь>  - опционально, корневая папка архива проектов."
@@ -68,6 +71,22 @@ while [ $# -gt 0 ]; do
             ARCHIVE_DIR="$2"
             shift 2
             ;;
+        --copy)
+            if [ -n "$FILE_ACTION" ]; then
+                echo "Ошибка: --copy и --move взаимоисключающие" >&2
+                exit 1
+            fi
+            FILE_ACTION="copy"
+            shift
+            ;;
+        --move)
+            if [ -n "$FILE_ACTION" ]; then
+                echo "Ошибка: --copy и --move взаимоисключающие" >&2
+                exit 1
+            fi
+            FILE_ACTION="move"
+            shift
+            ;;
         --dry-run)
             DRY_RUN=true
             echo "Режим сухого запуска (без реальных изменений)"
@@ -91,6 +110,12 @@ done
 
 if [ -z "$SOURCE_DIR" ]; then
     echo "Ошибка: обязательный параметр --in не указан" >&2
+    usage
+    exit 1
+fi
+
+if [ -z "$FILE_ACTION" ]; then
+    echo "Ошибка: обязательный параметр --copy или --move не указан" >&2
     usage
     exit 1
 fi
@@ -124,8 +149,38 @@ CURRENT_DATE=$(date +%Y%m%d)
 
 # Счётчики для итоговой статистики
 CALIB_FILES_FOUND=0
-SRC_FILES_COPIED=0
 declare -A UNIQUE_CAMERAS=()
+declare -A CAMERAS_WITH_SRC=()
+
+# Копирует или перемещает файл в зависимости от FILE_ACTION
+transfer_file() {
+    local src="$1"
+    local dest="$2"
+
+    if [ "$DRY_RUN" = true ]; then
+        if [ "$FILE_ACTION" = "move" ]; then
+            echo "  [DRY-RUN] mv $src $dest"
+        else
+            echo "  [DRY-RUN] cp $src $dest"
+        fi
+        return
+    fi
+
+    if [ "$FILE_ACTION" = "move" ]; then
+        mv "$src" "$dest"
+    else
+        cp "$src" "$dest"
+    fi
+}
+
+# Текст для отладочного сообщения о переносе файла
+transfer_action_label() {
+    if [ "$FILE_ACTION" = "move" ]; then
+        echo "Перемещён"
+    else
+        echo "Скопирован"
+    fi
+}
 
 # Функция для получения даты последнего изменения файла в формате YYYYMMDD
 get_file_mod_date() {
@@ -171,7 +226,6 @@ local_dir_has_src_files() {
     fi
     return 1
 }
-
 
 # Собирает пути SRC-файлов из указанной папки в массив files_to_copy
 collect_src_files_from_dir() {
@@ -247,14 +301,10 @@ process_file() {
         local calib_filename="calib_${camera_sn}_${file_mod_date}.txt"
         local target_calib="$target_dir/$calib_filename"
 
-        # Копируем файл калибровки в целевую папку
-        if [ "$DRY_RUN" = false ]; then
-            cp "$file" "$target_calib"
-            if [ "$DEBUG" = true ]; then
-                echo "  Скопирован файл калибровки: $calib_filename"
-            fi
-        else
-            echo "  [DRY-RUN] cp $file $target_calib"
+        # Переносим файл калибровки в целевую папку
+        transfer_file "$file" "$target_calib"
+        if [ "$DRY_RUN" = false ] && [ "$DEBUG" = true ]; then
+            echo "  $(transfer_action_label) файл калибровки: $calib_filename"
         fi
         
         # Находим SRC-файлы рядом с калибровкой или в архиве проектов
@@ -276,24 +326,19 @@ process_file() {
             echo "  SRC не найдены рядом с калибровкой, архив проектов не указан"
         fi
 
-        # Копируем найденные файлы в SRC
+        # Переносим найденные файлы в SRC
         for other_file in "${files_to_copy[@]}"; do
             local other_filename=$(basename "$other_file")
-            
+
             # Пропускаем сам файл калибровки
             if [ "$other_file" == "$file" ]; then
                 continue
             fi
-            
-            if [ "$DRY_RUN" = false ]; then
-                cp "$other_file" "$src_dir/"
-                SRC_FILES_COPIED=$((SRC_FILES_COPIED + 1))
-                if [ "$DEBUG" = true ]; then
-                    echo "  Скопирован файл в SRC: $other_filename"
-                fi
-            else
-                SRC_FILES_COPIED=$((SRC_FILES_COPIED + 1))
-                echo "  [DRY-RUN] cp $other_file $src_dir/"
+
+            CAMERAS_WITH_SRC["$camera_sn"]=1
+            transfer_file "$other_file" "$src_dir/"
+            if [ "$DRY_RUN" = false ] && [ "$DEBUG" = true ]; then
+                echo "  $(transfer_action_label) файл в SRC: $other_filename"
             fi
         done
         
@@ -302,6 +347,11 @@ process_file() {
 
 echo "Начинаю сканирование директории: $SOURCE_DIR"
 echo "Выходная директория: $OUTPUT_DIR"
+if [ "$FILE_ACTION" = "move" ]; then
+    echo "Режим: перемещение файлов"
+else
+    echo "Режим: копирование файлов"
+fi
 if [ -n "$ARCHIVE_DIR" ]; then
     echo "Архив проектов: $ARCHIVE_DIR"
 fi
@@ -329,17 +379,16 @@ else
 fi
 
 UNIQUE_CAMERA_COUNT=${#UNIQUE_CAMERAS[@]}
+CAMERAS_WITH_SRC_COUNT=${#CAMERAS_WITH_SRC[@]}
 
 echo ""
 echo "Обработка завершена!"
 echo ""
-echo "Итого:"
-echo "  Найдено файлов калибровки: $CALIB_FILES_FOUND"
-echo "  Уникальных камер: $UNIQUE_CAMERA_COUNT"
+echo "Найдено файлов калибровки всего: $CALIB_FILES_FOUND"
+echo "Из них:"
+echo "  уникальных камер: $UNIQUE_CAMERA_COUNT"
+echo "  камер с исходниками: $CAMERAS_WITH_SRC_COUNT"
 if [ "$DRY_RUN" = true ]; then
-    echo "  Будет скопировано файлов в SRC: $SRC_FILES_COPIED"
     echo ""
     echo "(Это был сухой запуск, реальные изменения не внесены)"
-else
-    echo "  Скопировано файлов в SRC: $SRC_FILES_COPIED"
 fi
