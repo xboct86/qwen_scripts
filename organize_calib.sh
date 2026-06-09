@@ -18,7 +18,7 @@ usage() {
     echo "  --out <путь>  - опционально, куда складывать результаты."
     echo "                  Если не указано, создается папка CAMS_CALIB рядом с исходной."
     echo "  --arc <путь>  - опционально, корневая папка архива проектов."
-    echo "                  Если рядом с калибровкой нет *.bmp, project.txt и project.xml,"
+    echo "                  Если рядом с калибровкой нет *.bmp, project.txt и project.bin,"
     echo "                  файлы ищутся в подпапке <архив>/<серийный_номер>/."
     echo "  --dry-run     - показать, что будет сделано, без реальных изменений"
     echo "  --debug       - включить подробный вывод отладочной информации"
@@ -155,7 +155,7 @@ get_camera_sn() {
     echo "$line" | awk '{print $NF}'
 }
 
-# Проверка наличия SRC-файлов (*.bmp, project.txt, project.xml) в указанной папке
+# Проверка наличия SRC-файлов (*.bmp, project.txt, project.bin) в указанной папке
 local_dir_has_src_files() {
     local dir="$1"
 
@@ -166,7 +166,7 @@ local_dir_has_src_files() {
     if [ ${#bmps[@]} -gt 0 ]; then
         return 0
     fi
-    if [ -f "$dir/project.txt" ] || [ -f "$dir/project.xml" ]; then
+    if [ -f "$dir/project.txt" ] || [ -f "$dir/project.bin" ]; then
         return 0
     fi
     return 1
@@ -187,8 +187,8 @@ collect_src_files_from_dir() {
     if [ -f "$search_dir/project.txt" ]; then
         files_to_copy+=("$search_dir/project.txt")
     fi
-    if [ -f "$search_dir/project.xml" ]; then
-        files_to_copy+=("$search_dir/project.xml")
+    if [ -f "$search_dir/project.bin" ]; then
+        files_to_copy+=("$search_dir/project.bin")
     fi
 }
 
