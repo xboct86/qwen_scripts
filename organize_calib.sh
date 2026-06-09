@@ -40,6 +40,8 @@ while [ $# -gt 0 ]; do
         *)
             if [ -z "$OUTPUT_DIR" ]; then
                 OUTPUT_DIR="$1"
+            else
+                echo "Предупреждение: игнорируется лишний аргумент '$1'" >&2
             fi
             shift
             ;;
@@ -58,15 +60,21 @@ if [ ! -d "$SOURCE_DIR" ]; then
     exit 1
 fi
 
-# Получение текущей даты в формате YYYYMMDD (по умолчанию)
+# Текущая дата — запасной вариант, если stat недоступен
 CURRENT_DATE=$(date +%Y%m%d)
+
+# Счётчики для итоговой статистики
+CALIB_FILES_FOUND=0
+SRC_FILES_COPIED=0
+declare -A UNIQUE_CAMERAS=()
 
 # Функция для получения даты последнего изменения файла в формате YYYYMMDD
 get_file_mod_date() {
     local file="$1"
     # Получаем дату изменения в формате YYYY-MM-DD HH:MM:SS и извлекаем только дату
-    local mod_date=$(stat -c %y "$file" 2>/dev/null | cut -d' ' -f1 | tr -d '-')
-    echo "$mod_date"
+    local mod_date
+    mod_date=$(stat -c %y "$file" 2>/dev/null | cut -d' ' -f1 | tr -d '-')
+    echo "${mod_date:-$CURRENT_DATE}"
 }
 
 # Функция для проверки, является ли строка строкой калибровки
@@ -114,17 +122,15 @@ process_file() {
     done < "$file"
     
     if [ "$is_calib_file" = true ] && [ -n "$camera_sn" ]; then
-        # Это файл калибровки
-        if [ "$DEBUG" = true ]; then
-            echo "Найден файл калибровки: $file (Камера: $camera_sn)"
-        else
-            echo "Найден файл калибровки: $file (Камера: $camera_sn)"
-        fi
-        
+        CALIB_FILES_FOUND=$((CALIB_FILES_FOUND + 1))
+        UNIQUE_CAMERAS["$camera_sn"]=1
+
+        echo "Найден файл калибровки: $file (Камера: $camera_sn)"
+
         # Создаем целевую папку для камеры в OUTPUT_DIR
         local target_dir="$OUTPUT_DIR/$camera_sn"
         local src_dir="$target_dir/SRC"
-        
+
         if [ "$DRY_RUN" = false ]; then
             mkdir -p "$src_dir"
             if [ "$DEBUG" = true ]; then
@@ -132,19 +138,18 @@ process_file() {
                 echo "  Создана папка SRC: $src_dir"
             fi
         else
-            if [ "$DEBUG" = true ]; then
-                echo "  [DRY-RUN] mkdir -p $target_dir"
-                echo "  [DRY-RUN] mkdir -p $src_dir"
-            fi
+            echo "  [DRY-RUN] mkdir -p $target_dir"
+            echo "  [DRY-RUN] mkdir -p $src_dir"
         fi
-        
+
         # Получаем дату последнего изменения файла калибровки
-        local file_mod_date=$(get_file_mod_date "$file")
-        
+        local file_mod_date
+        file_mod_date=$(get_file_mod_date "$file")
+
         # Имя файла калибровки с датой изменения файла
         local calib_filename="calib_${camera_sn}_${file_mod_date}.txt"
         local target_calib="$target_dir/$calib_filename"
-        
+
         # Копируем файл калибровки в целевую папку
         if [ "$DRY_RUN" = false ]; then
             cp "$file" "$target_calib"
@@ -152,9 +157,7 @@ process_file() {
                 echo "  Скопирован файл калибровки: $calib_filename"
             fi
         else
-            if [ "$DEBUG" = true ]; then
-                echo "  [DRY-RUN] cp $file $target_calib"
-            fi
+            echo "  [DRY-RUN] cp $file $target_calib"
         fi
         
         # Находим только определенные файлы в той же папке и копируем их в SRC
@@ -193,13 +196,13 @@ process_file() {
             
             if [ "$DRY_RUN" = false ]; then
                 cp "$other_file" "$src_dir/"
+                SRC_FILES_COPIED=$((SRC_FILES_COPIED + 1))
                 if [ "$DEBUG" = true ]; then
                     echo "  Скопирован файл в SRC: $other_filename"
                 fi
             else
-                if [ "$DEBUG" = true ]; then
-                    echo "  [DRY-RUN] cp $other_file $src_dir/"
-                fi
+                SRC_FILES_COPIED=$((SRC_FILES_COPIED + 1))
+                echo "  [DRY-RUN] cp $other_file $src_dir/"
             fi
         done
         
@@ -208,7 +211,6 @@ process_file() {
 
 echo "Начинаю сканирование директории: $SOURCE_DIR"
 echo "Выходная директория: $OUTPUT_DIR"
-echo "Текущая дата: $CURRENT_DATE"
 
 # Создаем выходную директорию если не dry-run
 if [ "$DRY_RUN" = false ]; then
@@ -232,9 +234,18 @@ else
     done < <(find "$SOURCE_DIR" -type f -size -5k -print0)
 fi
 
+UNIQUE_CAMERA_COUNT=${#UNIQUE_CAMERAS[@]}
+
 echo ""
 echo "Обработка завершена!"
-
+echo ""
+echo "Итого:"
+echo "  Найдено файлов калибровки: $CALIB_FILES_FOUND"
+echo "  Уникальных камер: $UNIQUE_CAMERA_COUNT"
 if [ "$DRY_RUN" = true ]; then
+    echo "  Будет скопировано файлов в SRC: $SRC_FILES_COPIED"
+    echo ""
     echo "(Это был сухой запуск, реальные изменения не внесены)"
+else
+    echo "  Скопировано файлов в SRC: $SRC_FILES_COPIED"
 fi
