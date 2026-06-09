@@ -172,6 +172,7 @@ local_dir_has_src_files() {
     return 1
 }
 
+
 # Собирает пути SRC-файлов из указанной папки в массив files_to_copy
 collect_src_files_from_dir() {
     local search_dir="$1"
