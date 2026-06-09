@@ -6,28 +6,68 @@
 
 set -e
 
-# Проверка аргументов
-if [ $# -lt 1 ]; then
-    echo "Использование: $0 <путь_к_родительской_папке> [путь_к_выходной_папке] [--dry-run] [--debug]"
-    echo "  путь_к_выходной_папке - опционально, куда складывать результаты."
-    echo "                        Если не указано, создается папка CAMS_CALIB рядом с исходной."
-    echo "  --dry-run           - показать, что будет сделано, без реальных изменений"
-    echo "  --debug             - включить подробный вывод отладочной информации"
-    exit 1
-fi
-
-SOURCE_DIR="$1"
+SOURCE_DIR=""
 OUTPUT_DIR=""
+ARCHIVE_DIR=""
 DRY_RUN=false
 DEBUG=false
 
-# Нормализация пути (убираем конечный слэш, если есть, для корректной работы dirname)
-SOURCE_DIR="${SOURCE_DIR%/}"
+usage() {
+    echo "Использование: $0 --in <путь> [--out <путь>] [--arc <путь>] [--dry-run] [--debug]"
+    echo "  --in <путь>   - обязательно, исходная папка для сканирования"
+    echo "  --out <путь>  - опционально, куда складывать результаты."
+    echo "                  Если не указано, создается папка CAMS_CALIB рядом с исходной."
+    echo "  --arc <путь>  - опционально, корневая папка архива проектов."
+    echo "                  Если рядом с калибровкой нет *.bmp, project.txt и project.xml,"
+    echo "                  файлы ищутся в подпапке <архив>/<серийный_номер>/."
+    echo "  --dry-run     - показать, что будет сделано, без реальных изменений"
+    echo "  --debug       - включить подробный вывод отладочной информации"
+}
 
-# Обработка остальных аргументов
-shift
+# Проверка аргументов
+if [ $# -lt 1 ]; then
+    usage
+    exit 1
+fi
+
 while [ $# -gt 0 ]; do
     case "$1" in
+        --in)
+            if [ -z "${2:-}" ] || [[ "$2" == --* ]]; then
+                echo "Ошибка: --in требует путь" >&2
+                exit 1
+            fi
+            if [ -n "$SOURCE_DIR" ]; then
+                echo "Ошибка: --in указан повторно" >&2
+                exit 1
+            fi
+            SOURCE_DIR="$2"
+            shift 2
+            ;;
+        --out)
+            if [ -z "${2:-}" ] || [[ "$2" == --* ]]; then
+                echo "Ошибка: --out требует путь" >&2
+                exit 1
+            fi
+            if [ -n "$OUTPUT_DIR" ]; then
+                echo "Ошибка: --out указан повторно" >&2
+                exit 1
+            fi
+            OUTPUT_DIR="$2"
+            shift 2
+            ;;
+        --arc)
+            if [ -z "${2:-}" ] || [[ "$2" == --* ]]; then
+                echo "Ошибка: --arc требует путь" >&2
+                exit 1
+            fi
+            if [ -n "$ARCHIVE_DIR" ]; then
+                echo "Ошибка: --arc указан повторно" >&2
+                exit 1
+            fi
+            ARCHIVE_DIR="$2"
+            shift 2
+            ;;
         --dry-run)
             DRY_RUN=true
             echo "Режим сухого запуска (без реальных изменений)"
@@ -37,16 +77,25 @@ while [ $# -gt 0 ]; do
             DEBUG=true
             shift
             ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
         *)
-            if [ -z "$OUTPUT_DIR" ]; then
-                OUTPUT_DIR="$1"
-            else
-                echo "Предупреждение: игнорируется лишний аргумент '$1'" >&2
-            fi
-            shift
+            echo "Ошибка: неизвестный аргумент '$1'" >&2
+            usage
+            exit 1
             ;;
     esac
 done
+
+if [ -z "$SOURCE_DIR" ]; then
+    echo "Ошибка: обязательный параметр --in не указан" >&2
+    usage
+    exit 1
+fi
+
+SOURCE_DIR="${SOURCE_DIR%/}"
 
 # Если выходная папка не указана, используем папку CAMS_CALIB рядом с исходной
 if [ -z "$OUTPUT_DIR" ]; then
@@ -54,9 +103,19 @@ if [ -z "$OUTPUT_DIR" ]; then
     OUTPUT_DIR="$PARENT_DIR/CAMS_CALIB"
 fi
 
+OUTPUT_DIR="${OUTPUT_DIR%/}"
+if [ -n "$ARCHIVE_DIR" ]; then
+    ARCHIVE_DIR="${ARCHIVE_DIR%/}"
+fi
+
 # Проверка существования исходной директории
 if [ ! -d "$SOURCE_DIR" ]; then
     echo "Ошибка: Директория '$SOURCE_DIR' не существует"
+    exit 1
+fi
+
+if [ -n "$ARCHIVE_DIR" ] && [ ! -d "$ARCHIVE_DIR" ]; then
+    echo "Ошибка: Директория архива проектов '$ARCHIVE_DIR' не существует"
     exit 1
 fi
 
@@ -94,6 +153,43 @@ get_camera_sn() {
     local line="$1"
     # Извлекаем последнее слово (серийный номер)
     echo "$line" | awk '{print $NF}'
+}
+
+# Проверка наличия SRC-файлов (*.bmp, project.txt, project.xml) в указанной папке
+local_dir_has_src_files() {
+    local dir="$1"
+
+    shopt -s nullglob
+    local bmps=("$dir"/*.bmp)
+    shopt -u nullglob
+
+    if [ ${#bmps[@]} -gt 0 ]; then
+        return 0
+    fi
+    if [ -f "$dir/project.txt" ] || [ -f "$dir/project.xml" ]; then
+        return 0
+    fi
+    return 1
+}
+
+# Собирает пути SRC-файлов из указанной папки в массив files_to_copy
+collect_src_files_from_dir() {
+    local search_dir="$1"
+
+    shopt -s nullglob
+    for bmp_file in "$search_dir"/*.bmp; do
+        if [ -f "$bmp_file" ]; then
+            files_to_copy+=("$bmp_file")
+        fi
+    done
+    shopt -u nullglob
+
+    if [ -f "$search_dir/project.txt" ]; then
+        files_to_copy+=("$search_dir/project.txt")
+    fi
+    if [ -f "$search_dir/project.xml" ]; then
+        files_to_copy+=("$search_dir/project.xml")
+    fi
 }
 
 # Функция для обработки файла
@@ -160,31 +256,25 @@ process_file() {
             echo "  [DRY-RUN] cp $file $target_calib"
         fi
         
-        # Находим только определенные файлы в той же папке и копируем их в SRC
-        local parent_dir=$(dirname "$file")
-        
-        # Массив имен файлов для копирования
+        # Находим SRC-файлы рядом с калибровкой или в архиве проектов
+        local parent_dir
+        parent_dir=$(dirname "$file")
         local files_to_copy=()
-        
-        # Ищем все файлы *.bmp
-        shopt -s nullglob
-        for bmp_file in "$parent_dir"/*.bmp; do
-            if [ -f "$bmp_file" ]; then
-                files_to_copy+=("$bmp_file")
+
+        if local_dir_has_src_files "$parent_dir"; then
+            collect_src_files_from_dir "$parent_dir"
+        elif [ -n "$ARCHIVE_DIR" ]; then
+            local archive_subdir="$ARCHIVE_DIR/$camera_sn"
+            if [ -d "$archive_subdir" ]; then
+                echo "  SRC не найдены рядом с калибровкой, берём из архива: $archive_subdir"
+                collect_src_files_from_dir "$archive_subdir"
+            else
+                echo "  Предупреждение: SRC не найдены локально, папка архива отсутствует: $archive_subdir" >&2
             fi
-        done
-        
-        # Ищем project.txt
-        if [ -f "$parent_dir/project.txt" ]; then
-            files_to_copy+=("$parent_dir/project.txt")
+        elif [ "$DEBUG" = true ]; then
+            echo "  SRC не найдены рядом с калибровкой, архив проектов не указан"
         fi
-        
-        # Ищем project.bin
-        if [ -f "$parent_dir/project.bin" ]; then
-            files_to_copy+=("$parent_dir/project.bin")
-        fi
-        shopt -u nullglob
-        
+
         # Копируем найденные файлы в SRC
         for other_file in "${files_to_copy[@]}"; do
             local other_filename=$(basename "$other_file")
@@ -211,6 +301,9 @@ process_file() {
 
 echo "Начинаю сканирование директории: $SOURCE_DIR"
 echo "Выходная директория: $OUTPUT_DIR"
+if [ -n "$ARCHIVE_DIR" ]; then
+    echo "Архив проектов: $ARCHIVE_DIR"
+fi
 
 # Создаем выходную директорию если не dry-run
 if [ "$DRY_RUN" = false ]; then
